@@ -1,3 +1,4 @@
+// 参考サイト
 // スリープと復帰　本家
 // http://playground.arduino.cc/Learning/ArduinoSleepCode
 
@@ -12,15 +13,13 @@
 
 // eepromのライブラリ
 #include <AT24CX.h>       // https://github.com/cyberp/AT24Cx
-#include <Wire.h>
 #define MEM_I2C_ADDR 8
 AT24C32 mem(7); // addr=57;   // EEPROM object 4kbyte 4096
 
-// 0x00 addr_poss
 
 // 測定データ構造体 16バイト
 struct MEASURE_DATA {
-  long sTime;  // 日時 4byte
+  time_t sTime;  // 日時 4byte
   short temp; // 温度 2byte
   short a; // 2byte
   long b; // 4byte
@@ -30,7 +29,8 @@ struct MEASURE_DATA {
 #define MEM_POS_ADDR    0x00  // データ書き込み位置
 #define MEM_DATA_OFFSET 0x10  // データ開始アドレスオフセット
 #define MEM_DATA_SIZE   0x10  // データサイズ
-// 0x10 time long 4 bytes
+// 0x00 addr_poss 1byte
+// 0x10 time long 4bytes
 // 0x11 temperature float 4 bytes →x10計算後の2バイトで保存
 // 水分
 // 残水量
@@ -50,6 +50,7 @@ struct MEASURE_DATA {
 
 bool rtcint = false;
 
+// セットアップ
 void setup() {
   Serial.begin(9600);
   Serial.println("start setup()");
@@ -71,22 +72,10 @@ void setup() {
     Serial.println("RTC has set the system time");
   }
 
-//  mem.write(0, 1);
-  int pos = mem.read(MEM_POS_ADDR);
-  Serial.println(pos, HEX);
+//  mem.write(0, 1);// データ削除時に実行
+  printMemRowData();  // eepromの生データ表示
+  printMemData();     // eepromの整形データ表示
   
-  for(int i = 0; i <= pos; i++){
-    Serial.print("0x");
-    Serial.print(i, HEX);
-      Serial.print("  ");
-    for(int j = 0; j < 16; j++){
-      int val = mem.read(i*16+j);
-      printHexDigits(val);
-      //Serial.print(val, HEX);
-      Serial.print("  ");
-    }
-    Serial.println("");
-  }  
   //show current time, sync with 0 second
   digitalClockDisplay();
   synctozero();
@@ -100,10 +89,11 @@ void setup() {
   Serial.println("end   setup()");
 }
 
+// ループ
 void loop() {
-  Serial.println("start loop()");
+  //Serial.println("start loop()");
   
-  //process clock display and clear interrupt flag as needed
+  // 割込みで起動後のみ実行
   if (rtcint) {
     rtcint = false;
 
@@ -123,51 +113,49 @@ void loop() {
     digitalWrite(PUMP_PIN, LOW);  // ポンプOFF
   
     // ★ToDo:前回動作時間をEEPROMに保存
-    unsigned long ul_now = now();
 //    AT24C32 mem = new AT24C32(7); // addr=57;   // EEPROM object 4kbyte 4096
     int pos = mem.read(MEM_POS_ADDR);
-    Serial.println(pos, HEX);
-    //mem.write(0, 1);
+    //Serial.println(pos, HEX);
     mem.write(MEM_POS_ADDR, ++pos);
     pos = mem.read(MEM_POS_ADDR);
     Serial.println(pos, HEX);
 
     MEASURE_DATA data = {0};
     data.sTime = now();
-    data.temp = (short)RTC.temperature() / 4 * 10;
+    data.temp = (short)( (RTC.temperature() / 4 ) * 10);
     mem.write(pos*sizeof(data), (byte*)&data, sizeof(data));
+    digitalClockDisplay();
     
   }
  
   //go to power save mode
   enterSleep();
   
-  Serial.println("end   loop()");
-  
+  //Serial.println("end   loop()");
 }
 
 // 00秒まで待機
 void synctozero() {
-  Serial.println("start synctozero()");
+  //Serial.println("start synctozero()");
   //wait until second reaches 0
   while (second() != 0) {
     delay(100);
   }
-  Serial.println("end   synctozero()");
+  //Serial.println("end   synctozero()");
 }
 
 // アラームコール 割込み処理
 void alcall() {
-  Serial.println("start alcall()");
+  //Serial.println("start alcall()");
   //per minute interrupt call
   rtcint = true;
-  Serial.println("end   alcall()");
+  //Serial.println("end   alcall()");
 }
  
 // スリープ実行
 void enterSleep(void)
 {
-  Serial.println("start enterSleep()>>>");
+  //Serial.println("start enterSleep()>>>");
   // シリアル出力のため、少し待つ
   tone(TONE_PIN, TONE_FREQ);
   delay(100);
@@ -181,7 +169,7 @@ void enterSleep(void)
   sleep_disable();
   power_all_enable();
   Serial.begin(9600);
-  Serial.println("end   enterSleep()<<<");
+  //Serial.println("end   enterSleep()<<<");
 }
 
 // 時刻出力
@@ -218,38 +206,48 @@ void printHexDigits(int digits) {
 }
 
 
-//WRITE!!!!*******************************
-void memWrite(byte addr1, byte addr2, byte val){
-  Wire.beginTransmission(MEM_I2C_ADDR);
-  Wire.write(addr1);      //First Word Address
-  Wire.write(addr2);      //Second Word Address
+// eepromの生データ表示
+void printMemRowData(){
+  int pos = mem.read(MEM_POS_ADDR);
+  Serial.println(pos, HEX);
   
-  Wire.write(val);      //Write an val
-  
-  delay(10);
-  
-  Wire.endTransmission();
-  delay(10);
+  for(int i = 0; i <= pos; i++){
+    Serial.print("0x");
+    printHexDigits(i);
+    Serial.print("  ");
+    for(int j = 0; j < 16; j++){
+      int val = mem.read(i*16+j);
+      printHexDigits(val);
+      Serial.print("  ");
+    }
+    Serial.println("");
+  }  
 }
 
-//READ!!!!*********************************
-byte memRead(byte addr1, byte addr2){
-  Wire.beginTransmission(MEM_I2C_ADDR);
-  Wire.write(addr1);      //First Word Address
-  Wire.write(addr2);      //Second Word Address
-  Wire.endTransmission();
-  delay(10);
+// eepromの整形データ表示
+void printMemData(){
+  int pos = mem.read(MEM_POS_ADDR);
+  Serial.println(pos, HEX);
   
-  Wire.requestFrom(MEM_I2C_ADDR, 1);
-  delay(10);
-  byte data = Wire.read();
-  Serial.write(data);      //Read the data and print to Serial port
-  Serial.println();
-  delay(10);
+  for(int i = 1; i <= pos; i++){
+    MEASURE_DATA data = {0};
+    data.temp = (short)RTC.temperature() / 4 * 10;
+    mem.read(i*sizeof(data), (byte*)&data, sizeof(data));
 
-  return data;
+    Serial.print(year(data.sTime));
+    Serial.print("/");
+    printDigits(month(data.sTime));
+    Serial.print("/");
+    printDigits(day(data.sTime));
+    Serial.print(" ");
+    printDigits(hour(data.sTime));
+    Serial.print(":");
+    printDigits(minute(data.sTime));
+    Serial.print(":");
+    printDigits(second(data.sTime));
+    Serial.print(" ");
+    Serial.print(data.temp/10.0);
+    Serial.println("度C");
+  }
 }
 
-
- 
- 
