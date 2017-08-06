@@ -28,6 +28,14 @@
 
 #include <avr/sleep.h>
 #include <avr/power.h>
+
+#ifndef cbi
+#define cbi(sfr, bit) (_SFR_BYTE(sfr) &= ~_BV(bit))
+#endif
+#ifndef sbi
+#define sbi(sfr, bit) (_SFR_BYTE(sfr) |= _BV(bit))
+#endif
+
 #include <time.h>
 #include <TimeLib.h>
 #include <DS3232RTC.h>    //http://github.com/JChristensen/DS3232RTC
@@ -207,6 +215,7 @@ void alcall() {
 void enterSleep(void)
 {
   Serial.println("start enterSleep()>>>");
+  cbi(ADCSRA,ADEN);                     // ADC 回路電源をOFF (ADC使って無くても120μA消費するため）
   // シリアル出力のため、少し待つ
   tone(TONE_PIN, TONE_FREQ);
   delay(100);
@@ -221,6 +230,7 @@ void enterSleep(void)
  
   sleep_disable();
   power_all_enable();
+  sbi(ADCSRA,ADEN);                     // ADC ON
   Serial.begin(SERIAL_SPEED);
   Serial.println("end   enterSleep()<<<");
 }
