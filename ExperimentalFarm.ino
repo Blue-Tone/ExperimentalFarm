@@ -163,7 +163,7 @@ void loop() {
   
   MEASURE_DATA data = {0};
   data.sTime = now();
-  data.temp = (short)( (RTC.temperature() / 4 ) * 10.0) + TEMP_ADJUST;
+  data.temp = (short)( (RTC.temperature() / 4 ) * 10.0);
   data.moisture = analogRead(MOISTURE_PIN);
   Serial.println(data.moisture);
 
@@ -220,9 +220,9 @@ void enterSleep(void)
   tone(TONE_PIN, TONE_FREQ);
   delay(100);
   noTone(TONE_PIN);
-  delay(100);
   Serial.flush();
-   
+  delay(100);
+     
   //enter sleep mode to save power
   set_sleep_mode(SLEEP_MODE_PWR_DOWN);
   sleep_enable();
@@ -309,7 +309,7 @@ void printMemData(){
     Serial.print(":");
     printDigits(second(data.sTime));
     Serial.print(", ");
-    Serial.print(data.temp/10.0);
+    Serial.print(data.temp/10.0 + TEMP_ADJUST);
     Serial.print("度C, 水分");
     Serial.print(data.moisture);
     Serial.print(", 実行フラグ");
