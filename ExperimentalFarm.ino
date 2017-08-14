@@ -311,17 +311,7 @@ void printMemData(){
     MEASURE_DATA data = {0};
     mem.read(i*sizeof(data), (byte*)&data, sizeof(data));
 
-    Serial.print(year(data.sTime));
-    Serial.print("/");
-    printDigits(month(data.sTime));
-    Serial.print("/");
-    printDigits(day(data.sTime));
-    Serial.print(" ");
-    printDigits(hour(data.sTime));
-    Serial.print(":");
-    printDigits(minute(data.sTime));
-    Serial.print(":");
-    printDigits(second(data.sTime));
+    printTime(data.sTime);
     Serial.print(", ");
     Serial.print(data.temp/10.0 + TEMP_ADJUST);
     Serial.print("度C, 水分");
