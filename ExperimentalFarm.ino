@@ -17,8 +17,9 @@
 
 // 土壌水分センサ AnalogOut
 #define MOISTURE_PIN    A0      // 土壌水分センサのピン
+#define VOLTAGE_PIN     A1      // 入力電圧計測のピン
 
-#define TONE_PIN        4       // デバッグ用トーンピン
+#define TONE_PIN        9       // デバッグ用トーンピン
 #define DEBUG_PIN       11      // デバッグモードピン 起動時にGNDと接続でデバッグモードで起動。割り込み毎分・水やり間隔２分
 #define DATA_CLEAR_PIN  12      // データ消去ピン 起動時にGNDと接続でデータの書き込み位置を初期化
 
@@ -46,15 +47,15 @@ AT24C32 mem(7); // addr=57;   // EEPROM object 4kbyte 4096
 
 // 測定データ構造体 16バイト
 struct MEASURE_DATA {
-  time_t sTime;   // 日時 4byte
+  time_t sTime;  // 日時 4byte
   short temp;     // 温度 2byte
   short moisture; // 土壌水分センサー 200湿<->1024乾 2byte
-  byte isExec;    // 水やり実行フラグ 1byte
-  byte a;
+  byte exec;      // 水やり実行結果 1byte
+  byte voltage;   // 電圧4.5:3.3:1024:255 - 0 (1バイトに収めるために、4で割る)
   byte b;
   byte c;
   long d; // 4byte
-  // 残水量
+  // 残水量未実装
 };
 
 #define MEM_POS_ADDR        0x00    // 測定データ書き込み位置
@@ -65,6 +66,10 @@ struct MEASURE_DATA {
 // 0x10 MEASURE_DATA 16bytes
 // 0x20 ・・・
 // 0x30 ・・・
+
+#define EXEC_NO 0
+#define EXEC_DO 1   // 水やり実行中
+#define EXEC_DONE 2 // 水やり完了
  
 #define RTC_EEPROM_ADDR 0x57
 #define PUMP_OPEN_TIME 10000// [ms]
@@ -123,11 +128,17 @@ void setup() {
 
   printMemRowData();  // eepromの生データ表示
   printMemData();     // eepromの整形データ表示
+  Serial.println("----");
   
-  //show current time, sync with 0 second
-  digitalClockDisplay();
-  synctozero();
- 
+  // 現在値表示
+//while(1){
+  MEASURE_DATA data = getMeasureData();
+  printMeasureData(data);
+//  delay(1000);
+//}
+
+  synctozero();  //sync with 0 second
+
   //set alarm to fire every minute
   RTC.alarm(ALM_INDEX);
   attachInterrupt(digitalPinToInterrupt(WAKE_PIN), alcall, FALLING);
@@ -164,32 +175,34 @@ void loop() {
   if(4000 < pos) pos = 0;//　4000で0に戻す
   mem.write(MEM_POS_ADDR, ++pos);
   Serial.println(pos, HEX);
-  
-  MEASURE_DATA data = {0};
-  data.sTime = now();
-  data.temp = (short)( (RTC.temperature() / 4 ) * 10.0);
-  data.moisture = analogRead(MOISTURE_PIN);
-  Serial.println(data.moisture);
 
-  // 水やり期間経過、土壌水分センサの値が閾値以上なら、水やり実行
+  // 測定データ取得、保存
+  MEASURE_DATA data = getMeasureData();
+  printMeasureData(data);
+  mem.write(pos*sizeof(data), (byte*)&data, sizeof(data));
+
+  // 水やり判定。水やり期間経過、土壌水分センサの値が閾値以上なら、実行
   if(now() >= lastTime + WATER_INTERVAL_TIME){
     Serial.println("past the interval.");
     if(MOISTURE_THRESHOLD < data.moisture){
       Serial.println("over threshold. exec water server!");
-      digitalWrite(PUMP_PIN, HIGH); // ポンプON
-      delay(PUMP_OPEN_TIME);
-      digitalWrite(PUMP_PIN, LOW);  // ポンプOFF
-      data.isExec = true;
-      mem.writeLong(MEM_LAST_TIME_ADDR, data.sTime);
+      data.exec = EXEC_DO;
+      mem.write(pos*sizeof(data), (byte*)&data, sizeof(data));// 測定データ書き込み
     }else{
       Serial.println("not over threshold");
     }
   }else{
     Serial.println("not past the interval. sleep again");
   }
-
-  // 測定データ書き込み
-  mem.write(pos*sizeof(data), (byte*)&data, sizeof(data));
+  
+  if( EXEC_DO == data.exec ){
+    digitalWrite(PUMP_PIN, HIGH); // ポンプON
+    delay(PUMP_OPEN_TIME);
+    digitalWrite(PUMP_PIN, LOW);  // ポンプOFF
+    data.exec = EXEC_DONE;  
+    mem.writeLong(MEM_LAST_TIME_ADDR, data.sTime);          // 最終水やり時刻更新
+    mem.write(pos*sizeof(data), (byte*)&data, sizeof(data));// 測定データ書き込み
+  }
 
   //go to power save mode
   enterSleep();
@@ -283,7 +296,6 @@ void printHexDigits(int digits) {
   Serial.print(digits, HEX);
 }
 
-
 // eepromの生データ表示
 void printMemRowData(){
   int pos = mem.read(MEM_POS_ADDR);
@@ -310,15 +322,34 @@ void printMemData(){
   for(int i = 1; i <= pos; i++){
     MEASURE_DATA data = {0};
     mem.read(i*sizeof(data), (byte*)&data, sizeof(data));
-
-    printTime(data.sTime);
-    Serial.print(", ");
-    Serial.print(data.temp/10.0 + TEMP_ADJUST);
-    Serial.print("度C, 水分");
-    Serial.print(data.moisture);
-    Serial.print(", 実行フラグ");
-    Serial.println(data.isExec);
+    printMeasureData(data);
   }
+}
+
+// 測定データ表示
+void printMeasureData(MEASURE_DATA data){
+  printTime(data.sTime);
+  Serial.print(", ");
+  Serial.print(data.temp/10.0 + TEMP_ADJUST);
+  Serial.print("度C, 水分");
+  Serial.print(data.moisture);
+  Serial.print(", 実行結果");
+  Serial.print(data.exec);
+  Serial.print(", 電圧");
+  Serial.print(data.voltage);
+  Serial.print(" ");
+  Serial.print((float)map(data.voltage,0,255,0,84)/10);// 15k:5.1k+4.7kの場合
+  Serial.println("V");
+}
+
+// 測定データ取得
+MEASURE_DATA getMeasureData(void){
+  MEASURE_DATA data = {0};
+  data.sTime = now();
+  data.temp = (short)( (RTC.temperature() / 4 ) * 10.0);
+  data.moisture = analogRead(MOISTURE_PIN);
+  data.voltage = analogRead(VOLTAGE_PIN) / 4; // 1023を255に丸める
+  return data;
 }
 
 
