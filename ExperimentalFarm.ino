@@ -67,7 +67,6 @@ struct MEASURE_DATA {
 // 0x30 ・・・
  
 #define RTC_EEPROM_ADDR 0x57
-#define WAKE_PIN_INDEX 0    // for attachInterrupt()
 #define PUMP_OPEN_TIME 10000// [ms]
 
 unsigned long WATER_INTERVAL_TIME = 60*60*24;   // 水やり間隔[s] 60*60*24=毎時
@@ -95,11 +94,6 @@ void setup() {
   pinMode(DATA_CLEAR_PIN, INPUT_PULLUP);
   pinMode(DEBUG_PIN, INPUT_PULLUP);
 
-  if(LOW == digitalRead(DEBUG_PIN)){
-    WAKE_INTERVAL = WAKE_INTERVAL_DEBUG;
-    WATER_INTERVAL_TIME = WATER_INTERVAL_TIME_DEBUG;
-  }
-  
   // RTC初期化
   RTC.alarmInterrupt(1, false);
   RTC.alarmInterrupt(2, false);
@@ -113,7 +107,20 @@ void setup() {
     Serial.println("RTC has set the system time");
   }
 
-  if(LOW == digitalRead(DATA_CLEAR_PIN)) mem.write(0, 1);// データ削除時に実行
+  // デバッグモード
+  if(LOW == digitalRead(DEBUG_PIN)){
+    Serial.println("Debug mode");
+    WAKE_INTERVAL = WAKE_INTERVAL_DEBUG;
+    WATER_INTERVAL_TIME = WATER_INTERVAL_TIME_DEBUG;
+  }
+  
+  // データ初期化
+  if(LOW == digitalRead(DATA_CLEAR_PIN)){
+    Serial.println("Clear Data!!!");
+    mem.write(MEM_POS_ADDR, 0);// データ書き込み位置を初期化
+    mem.writeLong(MEM_LAST_TIME_ADDR, now() - WATER_INTERVAL_TIME); // 前回実行日時を現在-実行間隔に設定
+  }
+
   printMemRowData();  // eepromの生データ表示
   printMemData();     // eepromの整形データ表示
   
@@ -123,7 +130,7 @@ void setup() {
  
   //set alarm to fire every minute
   RTC.alarm(ALM_INDEX);
-  attachInterrupt(WAKE_PIN_INDEX, alcall, FALLING);
+  attachInterrupt(digitalPinToInterrupt(WAKE_PIN), alcall, FALLING);
   RTC.setAlarm(WAKE_INTERVAL , 0, 0, 0);
   RTC.alarmInterrupt(ALM_INDEX, true);
   digitalClockDisplay();
@@ -148,12 +155,9 @@ void loop() {
   
   // 前回保存時間読み出し
   time_t lastTime = mem.readLong(MEM_LAST_TIME_ADDR);
-  printDigits(hour(lastTime));
-  Serial.print(":");
-  printDigits(minute(lastTime));
-  Serial.print(":");
-  printDigits(second(lastTime));
-  Serial.println("");
+  Serial.print("lastTime : ");  
+  printTime(lastTime);
+  Serial.println("");  
   
   // posインクリして保存
   int pos = mem.read(MEM_POS_ADDR);
@@ -233,28 +237,38 @@ void enterSleep(void)
   sbi(ADCSRA,ADEN);                     // ADC ON
   Serial.begin(SERIAL_SPEED);
   Serial.println("end   enterSleep()<<<");
+  tone(TONE_PIN, TONE_FREQ);
+  delay(100);
+  noTone(TONE_PIN);
 }
 
-// 時刻出力
+// 現在時刻、温度出力
 void digitalClockDisplay() {
-  // digital clock display of the time
-  Serial.print(year());
-  Serial.print("/");
-  printDigits(month());
-  Serial.print("/");
-  printDigits(day());
-  Serial.print(" ");
-  printDigits(hour());
-  Serial.print(":");
-  printDigits(minute());
-  Serial.print(":");
-  printDigits(second());
-  Serial.print(" ");
+  Serial.print("now      : ");
+  printTime(now());
+  Serial.print(", ");
+  
   float c = RTC.temperature() / 4;
   Serial.print(c + TEMP_ADJUST);
 //  Serial.print((char)223);
   Serial.print("度C, 水分");
   Serial.println(analogRead(MOISTURE_PIN));
+}
+
+// 日時表示
+void printTime(time_t t){
+  Serial.print(year(t));
+  Serial.print("/");
+  printDigits(month(t));
+  Serial.print("/");
+  printDigits(day(t));
+  Serial.print(" ");
+
+  printDigits(hour(t));
+  Serial.print(":");
+  printDigits(minute(t));
+  Serial.print(":");
+  printDigits(second(t));
 }
 
 // ゼロ埋め出力
@@ -316,4 +330,5 @@ void printMemData(){
     Serial.println(data.isExec);
   }
 }
+
 
