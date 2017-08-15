@@ -26,6 +26,9 @@
 // 調整パラメータ
 #define MOISTURE_THRESHOLD  500     // 土壌水分センサの水やり判定の閾値。閾値以上なら水やり。
 #define TEMP_ADJUST         -3      // 温度誤差補正
+#define PUMP_OPEN_TIME 30000        // [ms]
+unsigned long WATER_INTERVAL_TIME = 60L*60*24;   // 水やり間隔[s] 60*60*24=毎時
+unsigned long WATER_INTERVAL_TIME_DEBUG = 60*2; // デバッグ用 60*2=2分
 
 #include <avr/sleep.h>
 #include <avr/power.h>
@@ -72,10 +75,6 @@ struct MEASURE_DATA {
 #define EXEC_DONE 2 // 水やり完了
  
 #define RTC_EEPROM_ADDR 0x57
-#define PUMP_OPEN_TIME 10000// [ms]
-
-unsigned long WATER_INTERVAL_TIME = 60*60*24;   // 水やり間隔[s] 60*60*24=毎時
-unsigned long WATER_INTERVAL_TIME_DEBUG = 60*2; // デバッグ用 60*2=2分
 
 byte WAKE_INTERVAL = ALM2_MATCH_MINUTES;        // 割込み間隔 毎時
 byte WAKE_INTERVAL_DEBUG = ALM2_EVERY_MINUTE;   // デバッグ用 毎分
@@ -181,8 +180,10 @@ void loop() {
   printMeasureData(data);
   mem.write(pos*sizeof(data), (byte*)&data, sizeof(data));
 
+  time_t now_t = now();
+
   // 水やり判定。水やり期間経過、土壌水分センサの値が閾値以上なら、実行
-  if(now() >= lastTime + WATER_INTERVAL_TIME){
+  if(now_t >= lastTime + WATER_INTERVAL_TIME){
     Serial.println("past the interval.");
     if(MOISTURE_THRESHOLD < data.moisture){
       Serial.println("over threshold. exec water server!");
@@ -196,6 +197,7 @@ void loop() {
   }
   
   if( EXEC_DO == data.exec ){
+    delay(1000);  // 書き込み完了を確実にするために少し待つ
     digitalWrite(PUMP_PIN, HIGH); // ポンプON
     delay(PUMP_OPEN_TIME);
     digitalWrite(PUMP_PIN, LOW);  // ポンプOFF
